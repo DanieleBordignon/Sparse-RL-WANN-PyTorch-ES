@@ -39,18 +39,21 @@ def evaluate_agent(args):
         obs = env.reset()
         done = False
         episode_reward = 0
+        episode_steps = 0 # Initialize step counter
 
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
             episode_reward += reward
+            episode_steps += 1 # Increment step counter
 
             if visualize:
                 env.render()
 
         total_rewards.append(episode_reward)
-        print(f"Episode {episode + 1}/{episodes}: Reward = {episode_reward}")
+        termination_reason = "Goal Reached" if terminated else "Max Steps Reached"
+        print(f"Episode {episode + 1}/{episodes}: Reward = {episode_reward:.2f}, Steps = {episode_steps}, Reason = {termination_reason}")
 
     env.close()
 
