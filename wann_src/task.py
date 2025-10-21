@@ -67,26 +67,29 @@ class Task:
         action = selectAct(annOut, self.actSelect)
 
         state, reward, done, stop, info = self.env.step(action)
+        steps = 1
         if self.maxEpisodeLength == 0:
-            return reward
+            return reward, steps
         else:
             totalReward = reward
 
-        for tStep in range(self.maxEpisodeLength):
-            annOut = act(wVec, aVec, self.nInput, self.nOutput, state)
-            action = selectAct(annOut, self.actSelect)
-            state, reward, done, stop, info = self.env.step(action)
-            totalReward += reward
-            if view:
-                # time.sleep(0.01)
-                if self.needsClosed:
-                    self.env.render(close=done)
-                else:
-                    self.env.render()
-            if done:
-                break
+        if not done:
+            for tStep in range(self.maxEpisodeLength):
+                annOut = act(wVec, aVec, self.nInput, self.nOutput, state)
+                action = selectAct(annOut, self.actSelect)
+                state, reward, done, stop, info = self.env.step(action)
+                totalReward += reward
+                steps += 1
+                if view:
+                    # time.sleep(0.01)
+                    if self.needsClosed:
+                        self.env.render(close=done)
+                    else:
+                        self.env.render()
+                if done:
+                    break
 
-        return totalReward
+        return totalReward, steps
 
     # -- 'Weight Agnostic Network' evaluation -------------------------------- -- #
     def setWeights(self, wVec, wVal):
@@ -146,14 +149,15 @@ class Task:
 
         # Get reward from 'reps' rollouts -- test population on same seeds
         reward = np.empty((nRep, nVals))
+        steps = np.empty((nRep, nVals))
         for iRep in range(nRep):
             for iVal in range(nVals):
                 wMat = self.setWeights(wVec, wVals[iVal])
                 if seed == -1:
-                    reward[iRep, iVal] = self.testInd(wMat, aVec, seed=seed, view=view)
+                    reward[iRep, iVal], steps[iRep, iVal] = self.testInd(wMat, aVec, seed=seed, view=view)
                 else:
                     # Evaluate the network using self.testInd
-                    reward[iRep, iVal] = self.testInd(wMat, aVec, seed=seed + iRep, view=view)
+                    reward[iRep, iVal], steps[iRep, iVal] = self.testInd(wMat, aVec, seed=seed + iRep, view=view)
         if returnVals is True:
-            return np.mean(reward, axis=0), wVals
-        return np.mean(reward, axis=0)
+            return np.mean(reward, axis=0), wVals, np.mean(steps, axis=0)
+        return np.mean(reward, axis=0), np.mean(steps, axis=0)

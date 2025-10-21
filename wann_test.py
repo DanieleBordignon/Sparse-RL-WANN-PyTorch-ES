@@ -38,11 +38,11 @@ def main(argv):
     wVec, aVec, wKey = importNet(infile)
 
     # Show result
-    fitness, wVals = task.getDistFitness(wVec, aVec, hyp,
+    fitness, wVals, steps = task.getDistFitness(wVec, aVec, hyp,
                                          nVals=nMean, nRep=nRep,
                                          view=view, returnVals=True, seed=seed)
 
-    print("[***]\tFitness:", fitness, '\n' + "[***]\tWeight Values:\t", wVals)
+    print("[***]\tFitness:", fitness, '\n' + "[***]\tWeight Values:\t", wVals, '\n' + "[***]\tSteps:\t", steps)
     lsave(outPref + 'reward.out', fitness)
     lsave(outPref + 'wVals.out', wVals)
 
