@@ -43,6 +43,7 @@ def main(argv):
                                          view=view, returnVals=True, seed=seed)
 
     print("[***]\tFitness:", fitness, '\n' + "[***]\tWeight Values:\t", wVals, '\n' + "[***]\tSteps:\t", steps)
+    print("[***]\tAverage Steps:\t", np.mean(steps))
     lsave(outPref + 'reward.out', fitness)
     lsave(outPref + 'wVals.out', wVals)
 
