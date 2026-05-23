@@ -108,27 +108,31 @@ The optimal WANN topologies discovered by [Lingenberg & Reuter](https://github.c
 
 ## Results
 
-The ES optimization across 100 generations fails to improve upon the shared-weight baseline for any environment. The training curves below show the average steps per episode of the updated network weights (evaluated over 100 independent trials at each generation). The red dashed line indicates the best shared-weight baseline. Performance merely oscillates near the baseline without exhibiting any converging downward trend.
+The ES optimization across 100 generations fails to improve upon the shared-weight baseline for any environment. To examine the optimization dynamics, the multi-run aggregated training curves below illustrate the lowest step count achieved up to each generation, effectively displaying the historical best policy found during the search.
 
 ### Sparse Mountain Car - Discrete
 
 <p align="center">
-  <img src="plots/smc_discrete_training.png" alt="SMC Discrete training curve" width="70%">
+  <img src="plots/aggregated/smc_discrete_multi_run_best_overall.png" alt="SMC Discrete training curve" width="70%">
 </p>
 
 ### Sparse Mountain Car - Continuous
 
 <p align="center">
-  <img src="plots/smc_continuous_training.png" alt="SMC Continuous training curve" width="70%">
+  <img src="plots/aggregated/smc_continuous_multi_run_best_overall.png" alt="SMC Continuous training curve" width="70%">
 </p>
 
 ### Lunar Lander
 
 <p align="center">
-  <img src="plots/lunar_lander_training.png" alt="Lunar Lander training curve" width="70%">
+  <img src="plots/aggregated/lunar_lander_multi_run_best_overall.png" alt="Lunar Lander training curve" width="70%">
 </p>
 
-> Despite the SMC Continuous network having **71 trainable parameters** (vs. just 4 for SMC Discrete), the weight optimization still yields no improvement, confirming that the topology itself encodes the solution regardless of architectural complexity.
+Although the cumulative training curves show that the optimized parameters occasionally reach a slightly lower step count than the shared-weight baseline, this marginal improvement does not generalize to the final evaluation stage. As reported in the Key Findings table, when evaluated over 200 independent episodes, the performance of the optimized weights aligns with the baseline. This minor discrepancy is due to the stochastic nature of the training environments and selection bias: specific weight configurations can exploit favorable episodes during the evolutionary search, but their advantage disappears under rigorous statistical verification.
+
+> It is worth noting the extreme sparsity of the architectures solving the discrete tasks, e.g., comprising only 4 connections for the Sparse Mountain Car (Discrete). While one might intuitively attribute the lack of improvement to this heavily constrained parameter space, our results on the Sparse Mountain Car Continuous environment demonstrate otherwise. Despite possessing a significantly more complex architecture (71 connections), the targeted weight optimization still yielded no performance gains.
+> 
+> Ultimately, these findings provide compelling evidence that the discovered network structures are genuinely weight-agnostic. The fact that a targeted evolutionary optimization process fails to surpass the performance of a shared weight confirms that, regardless of the network's complexity, the problem-solving capability is inherently encoded within the topology itself, making explicit weight tuning unnecessary.
 
 ---
 
