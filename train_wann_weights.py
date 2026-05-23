@@ -1,6 +1,9 @@
 
 import os
 import time
+import csv
+import random
+import argparse
 import numpy as np
 import torch
 import torch.nn as nn
@@ -83,16 +86,33 @@ def _run_episodes(n_episodes, env_cls=None, continuous=False, n_input=None, n_ou
 # Training Script
 
 def main():
-    # Configuration — choose environment: 'smc_discrete', 'smc_continuous', 'lunar_lander'
-    ENV_NAME = 'smc_discrete'
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser(description="ES WANN Weight Training Script")
+    parser.add_argument('--env', type=str, default='lunar_lander', choices=['smc_discrete', 'smc_continuous', 'lunar_lander'],
+                        help="Environment configurations")
+    parser.add_argument('--seed', type=int, default=None, help="Random seed for reproducibility")
+    parser.add_argument('--run_id', type=str, default="", help="Run identifier/suffix for output files")
+    args = parser.parse_args()
+
+    ENV_NAME = args.env
+    
+    # Apply random seed to the parent process if provided
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        print(f"Set parent process random seed: {args.seed}")
+
+    suffix = f"_run{args.run_id}" if args.run_id else ""
+
     WEIGHT_FILE, ENV_CLS, N_INPUT, N_OUTPUT, CONTINUOUS = ENV_CONFIGS[ENV_NAME]
-    print(f"Environment: {ENV_NAME}  (inputs={N_INPUT}, outputs={N_OUTPUT}, continuous={CONTINUOUS})")
+    print(f"Environment: {ENV_NAME}  (inputs={N_INPUT}, outputs={N_OUTPUT}, continuous={CONTINUOUS}){f' | Run: {args.run_id}' if args.run_id else ''}")
     
     POP_SIZE = 16         # 16 pairs = 32 individuals
     GENERATIONS = 100
     LEARNING_RATE = 0.05
     SIGMA = 0.05          
-    N_EVALS_PER_CAND = 10
+    N_EVALS_PER_CAND = 100
     
     print("--- 0. Shared Weight Baseline ---")
     w_vals = [-2.0, -1.0, -0.5, 0.5, 1.0, 2.0]
@@ -102,7 +122,8 @@ def main():
     
     for w in w_vals:
         avg_steps, avg_reward, steps_list = _run_episodes(n_episodes=200, env_cls=ENV_CLS, continuous=CONTINUOUS, n_input=N_INPUT, n_output=N_OUTPUT, weight_file=WEIGHT_FILE, shared_weight=w, trainable=False)
-        print(f"Weight {w: .1f}: Avg Steps={avg_steps:.1f}, Avg Reward={avg_reward:.1f}")
+        std_dev = np.std(steps_list)
+        print(f"Weight {w: .1f}: Avg Steps={avg_steps:.1f} ± {std_dev:.1f}, Avg Reward={avg_reward:.1f}")
         if avg_steps < best_shared_steps:
             best_shared_steps = avg_steps
             best_shared_weight = w
@@ -115,20 +136,28 @@ def main():
     tmp_model = WannPyTorch(WEIGHT_FILE, n_input=N_INPUT, n_output=N_OUTPUT, trainable=True)
     nn.init.constant_(tmp_model.edge_weights, best_shared_weight)
     current_weights = tmp_model.edge_weights.detach().cpu().numpy()
+    # best_overall tracks the best master policy weights (evolved via ES) evaluated across all generations
     best_overall_steps = 200.0
     best_overall_weights = current_weights.copy()
+
+    # best_mutant tracks the best individual mutant candidate evaluated across all generations
+    best_mutant_steps = 200.0
+    best_mutant_weights = current_weights.copy()
 
     # History tracking for plots
     history_avg_steps = []
     history_avg_reward = []
     history_eval_steps = []
     history_eval_reward = []
+    history_best_candidate_steps = []
+    history_best_overall_steps = []
 
     
     print(f"Starting Advanced ES Training on {os.cpu_count()} cores...")
 
     # Run parallel tasks
     with ProcessPoolExecutor() as executor:
+        training_start_time = time.time()
         for gen in range(GENERATIONS):
             start_time = time.time()
 
@@ -180,63 +209,171 @@ def main():
             gen_min = np.min(results_np_s)
             gen_avg = np.mean(results_np_s)
             gen_avg_reward = np.mean(results_np_r)
-            if gen_min < best_overall_steps:
-                best_overall_steps = gen_min
+            
+            # Mutant-based best tracking
+            if gen_min < best_mutant_steps:
+                best_mutant_steps = gen_min
                 best_idx = np.argmin(results_np_s)
-                best_overall_weights = candidates[best_idx].copy()
+                best_mutant_weights = candidates[best_idx].copy()
             
             # Evaluate current policy with updated weights (100 episodes)
             eval_future = executor.submit(_run_episodes, 100, env_cls=ENV_CLS, continuous=CONTINUOUS,
                             n_input=N_INPUT, n_output=N_OUTPUT, weight_file=WEIGHT_FILE,
                             edge_weights_np=current_weights.copy(), trainable=True)
             eval_steps, eval_reward, _ = eval_future.result()
+
+            # Policy-based best tracking
+            if eval_steps < best_overall_steps:
+                best_overall_steps = eval_steps
+                best_overall_weights = current_weights.copy()
             
             # Track history
             history_avg_steps.append(gen_avg)
             history_avg_reward.append(gen_avg_reward)
             history_eval_steps.append(eval_steps)
             history_eval_reward.append(eval_reward)
+            history_best_candidate_steps.append(gen_min)
+            history_best_overall_steps.append(best_overall_steps)
             
             duration = time.time() - start_time
-            print(f"Gen {gen:03d} | Pop Avg: {gen_avg:.1f} | Updated Policy: {eval_steps:.1f} | Best Overall: {best_overall_steps:.1f} | Time: {duration:.2f}s")
+            
+            # Progress bar & ETA calculation
+            elapsed_training = time.time() - training_start_time
+            avg_time_per_gen = elapsed_training / (gen + 1)
+            gens_remaining = GENERATIONS - (gen + 1)
+            eta_seconds = avg_time_per_gen * gens_remaining
+            
+            if eta_seconds < 60:
+                eta_str = f"{eta_seconds:.0f}s"
+            elif eta_seconds < 3600:
+                eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+            else:
+                eta_str = f"{int(eta_seconds // 3600)}h {int((eta_seconds % 3600) // 60)}m"
+                
+            print(f"Gen {gen + 1:03d}/{GENERATIONS} | Pop Avg: {gen_avg:.1f} | Updated Policy: {eval_steps:.1f} | Best Policy: {best_overall_steps:.1f} | Best Mutant: {best_mutant_steps:.1f} | ETA: {eta_str} (Time: {duration:.2f}s)")
             
             if best_overall_steps < 40: 
                 print("Task solved! Stopping training.")
                 break
 
     print("\n--- 2. Final Trained Network Verification ---")
-    final_avg_steps, final_avg_reward, final_steps_list = _run_episodes(200, env_cls=ENV_CLS, continuous=CONTINUOUS, weight_file=WEIGHT_FILE, n_input=N_INPUT, n_output=N_OUTPUT, edge_weights_np=best_overall_weights)
+    
+    # 1. Evaluate the best policy weights (best_overall_weights) over 200 episodes
+    print("Evaluating final policy weights...")
+    final_policy_steps, final_policy_reward, final_policy_list = _run_episodes(
+        200, env_cls=ENV_CLS, continuous=CONTINUOUS, weight_file=WEIGHT_FILE,
+        n_input=N_INPUT, n_output=N_OUTPUT, edge_weights_np=best_overall_weights
+    )
+    
+    # 2. Evaluate the best mutant weights (best_mutant_weights) over 200 episodes
+    print("Evaluating best mutant weights...")
+    final_mutant_steps, final_mutant_reward, final_mutant_list = _run_episodes(
+        200, env_cls=ENV_CLS, continuous=CONTINUOUS, weight_file=WEIGHT_FILE,
+        n_input=N_INPUT, n_output=N_OUTPUT, edge_weights_np=best_mutant_weights
+    )
     
     std_base = np.std(best_shared_steps_list)
-    std_es = np.std(final_steps_list)
-    t_stat, p_value = stats.ttest_ind(best_shared_steps_list, final_steps_list, equal_var=False)
-
-    print(f"Best Shared Baseline (200 episodes): Avg Steps = {best_shared_steps:.1f} ± {std_base:.1f}")
-    print(f"Final Trained Performance (200 episodes): Avg Steps = {final_avg_steps:.1f} ± {std_es:.1f}, Avg Reward = {final_avg_reward:.1f}")
-    print(f"Welch's t-test p-value: {p_value:.6f}")
+    std_policy = np.std(final_policy_list)
+    std_mutant = np.std(final_mutant_list)
     
-    if final_avg_steps < best_shared_steps:
-        print(f"Success! Performance improved from {best_shared_steps:.1f} to {final_avg_steps:.1f} steps.")
+    # Welch's t-test comparisons
+    t_stat_p, p_value_p = stats.ttest_ind(best_shared_steps_list, final_policy_list, equal_var=False)
+    t_stat_m, p_value_m = stats.ttest_ind(best_shared_steps_list, final_mutant_list, equal_var=False)
+
+    print("\n==================== FINAL COMPARISON ====================")
+    print(f"Best Shared Baseline (200 episodes):        Avg Steps = {best_shared_steps:.1f} ± {std_base:.1f}")
+    print(f"Best Mutant (200 episodes):     Avg Steps = {final_mutant_steps:.1f} ± {std_mutant:.1f}, Avg Reward = {final_mutant_reward:.1f}")
+    print(f"Best Policy (200 episodes):     Avg Steps = {final_policy_steps:.1f} ± {std_policy:.1f}, Avg Reward = {final_policy_reward:.1f}")
+    print("----------------------------------------------------------")
+    print(f"Welch's t-test p-value (Baseline vs Mutant): {p_value_m:.6f}")
+    print(f"Welch's t-test p-value (Baseline vs Policy): {p_value_p:.6f}")
+    print("==========================================================\n")
+    
+    best_final_steps = min(final_policy_steps, final_mutant_steps)
+    if best_final_steps < best_shared_steps:
+        print(f"Success! Performance improved from {best_shared_steps:.1f} to {best_final_steps:.1f} steps.")
     else:
         print("Final verification did not show improvement over baseline.")
 
     # Plot Training Curves
     plot_dir = "plots"
-    os.makedirs(plot_dir, exist_ok=True)
+    latex_dir = os.path.join(plot_dir, "Latex")
+    png_dir = os.path.join(plot_dir, "png")
+    os.makedirs(latex_dir, exist_ok=True)
+    os.makedirs(png_dir, exist_ok=True)
     generations = list(range(len(history_avg_steps)))
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(generations, history_eval_steps, linewidth=2, color='#2196F3', label='Policy Eval Steps (100 runs)')
-    ax.axhline(y=best_shared_steps, linestyle='--', linewidth=2, color='#E53935', label=f'Baseline (shared w={best_shared_weight:.1f})')
+    ax.axhline(y=best_shared_steps, linestyle='--', linewidth=2, color='#E53935', label='Shared-Weight Baseline')
     ax.set_xlabel('Generation', fontsize=14)
     ax.set_ylabel('Average Steps', fontsize=14)
     ax.set_title('ES Weight Training — Steps per Generation', fontsize=15)
     ax.legend(fontsize=12)
     ax.grid(True, alpha=0.3)
+    if ENV_NAME == 'smc_continuous':
+        ax.set_ylim(100, 140)
+    elif ENV_NAME == 'smc_discrete':
+        ax.set_ylim(115, 155)
+    elif ENV_NAME == 'lunar_lander':
+        ax.set_ylim(55, 95)
     fig.tight_layout()
-    fig.savefig(os.path.join(plot_dir, f'{ENV_NAME}_training.pdf'), format='pdf')
+    fig.savefig(os.path.join(latex_dir, f'{ENV_NAME}_training{suffix}.pdf'), format='pdf')
+    fig.savefig(os.path.join(png_dir, f'{ENV_NAME}_training{suffix}.png'), format='png')
     plt.close(fig)
-    print(f"Saved: {plot_dir}/{ENV_NAME}_training.pdf")
+    print(f"Saved: {latex_dir}/{ENV_NAME}_training{suffix}.pdf and {png_dir}/{ENV_NAME}_training{suffix}.png")
+
+    # Plot Best Overall steps ("Lowest no.steps so far")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(generations, history_best_overall_steps, linewidth=2, color='#2196F3', label='Lowest no.steps so far')
+    ax.axhline(y=best_shared_steps, linestyle='--', linewidth=2, color='#E53935', label='Shared-Weight Baseline')
+    ax.set_xlabel('Generation', fontsize=14)
+    ax.set_ylabel('No. steps', fontsize=14)
+    ax.set_title('ES Weight Training — Lowest no.steps so far', fontsize=15)
+    ax.legend(fontsize=12)
+    ax.grid(True, alpha=0.3)
+    if ENV_NAME == 'smc_continuous':
+        ax.set_ylim(100, 140)
+    elif ENV_NAME == 'smc_discrete':
+        ax.set_ylim(115, 155)
+    elif ENV_NAME == 'lunar_lander':
+        ax.set_ylim(55, 95)
+    fig.tight_layout()
+    fig.savefig(os.path.join(latex_dir, f'{ENV_NAME}_best_overall{suffix}.pdf'), format='pdf')
+    fig.savefig(os.path.join(png_dir, f'{ENV_NAME}_best_overall{suffix}.png'), format='png')
+    plt.close(fig)
+    print(f"Saved: {latex_dir}/{ENV_NAME}_best_overall{suffix}.pdf and {png_dir}/{ENV_NAME}_best_overall{suffix}.png")
+
+    # Save to CSV
+    csv_dir = os.path.join(plot_dir, 'csv')
+    os.makedirs(csv_dir, exist_ok=True)
+    
+    # Save training steps CSV
+    training_csv_path = os.path.join(csv_dir, f'{ENV_NAME}_training{suffix}.csv')
+    with open(training_csv_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Generation', 'Policy_Eval_Steps', 'Best_Baseline_Steps'])
+        for gen, val in zip(generations, history_eval_steps):
+            writer.writerow([gen, val, best_shared_steps])
+    print(f"Saved: {training_csv_path}")
+
+    # Save best candidate steps CSV
+    best_candidate_csv_path = os.path.join(csv_dir, f'{ENV_NAME}_best_candidate{suffix}.csv')
+    with open(best_candidate_csv_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Generation', 'Best_Candidate_Steps', 'Best_Baseline_Steps'])
+        for gen, val in zip(generations, history_best_candidate_steps):
+            writer.writerow([gen, val, best_shared_steps])
+    print(f"Saved: {best_candidate_csv_path}")
+            
+    # Save best overall steps CSV
+    best_overall_csv_path = os.path.join(csv_dir, f'{ENV_NAME}_best_overall{suffix}.csv')
+    with open(best_overall_csv_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Generation', 'Best_Overall_Steps', 'Best_Baseline_Steps'])
+        for gen, val in zip(generations, history_best_overall_steps):
+            writer.writerow([gen, val, best_shared_steps])
+    print(f"Saved: {best_overall_csv_path}")
 
     
 if __name__ == "__main__":
