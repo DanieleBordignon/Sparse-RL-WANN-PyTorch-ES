@@ -20,7 +20,9 @@
 - [Usage](#usage)
   - [1. Train WANN Topologies](#1-train-wann-topologies)
   - [2. Train Individual Weights via ES](#2-train-individual-weights-via-es)
-  - [3. Visualize Network Topologies](#3-visualize-network-topologies)
+  - [3. Run Multiple Trials and Aggregate Data](#3-run-multiple-trials-and-aggregate-data)
+  - [4. Plot Aggregated Data Manually](#4-plot-aggregated-data-manually)
+  - [5. Visualize Network Topologies](#5-visualize-network-topologies)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
@@ -45,6 +47,8 @@ The following scripts represent the main contributions of this project, built on
 | Script | Description |
 |:---|:---|
 | `train_wann_weights.py` | ES weight optimization for WANN topologies. Runs the full training pipeline: shared-weight baseline evaluation, evolutionary weight optimization, statistical testing, and training curve generation. |
+| `run_multiple_trials.py` | Executes multiple sequential training trials for a given environment across different random seeds, aggregates the resulting CSV data, and generates shaded statistical plots. |
+| `plot_multiple_trials.py` | Parses CSV logs from multiple individual runs, calculates statistical metrics (mean and standard deviation), and creates shaded aggregated training curves to visualize performance variability. |
 | `convert_wann.py` | PyTorch re-implementation of the WANN forward pass. Converts `.out` topology files into differentiable `nn.Module` objects, supporting both shared-weight and individual-weight modes. |
 | `verify_consistency.py` | Numerical equivalence check between the original NumPy forward pass and the PyTorch re-implementation, ensuring identical outputs. |
 | `print_networks.py` | Network topology visualization. Generates high-resolution PDF renderings of the evolved WANN architectures with labeled inputs, outputs, and activation functions. |
@@ -55,8 +59,8 @@ The following scripts represent the main contributions of this project, built on
 
 | Configuration | SMC Discrete | SMC Continuous | Lunar Lander |
 |:---|:---:|:---:|:---:|
-| **Shared Baseline** | **126.2 ± 33.2** | **106.9 ± 13.5** | **67.0 ± 11.4** |
-| ES Trained | 128.6 ± 33.3 | 109.8 ± 13.9 | 68.0 ± 11.8 |
+| **Shared Baseline** | **129.3 ± 33.6** | **106.8 ± 13.4** | **67.0 ± 11.3** |
+| ES Trained | 129.4 ± 32.8 | 106.9 ± 13.6 | 67.0 ± 12.1 |
 
 > *Average steps ± std. dev. over 200 trials (lower is better).*
 
@@ -177,14 +181,32 @@ ENV_NAME = 'smc_discrete'    # Options: 'smc_discrete', 'smc_continuous', 'lunar
 | `GENERATIONS` | 100 | Number of ES generations |
 | `LEARNING_RATE` | 0.05 | Step size for weight updates |
 | `SIGMA` | 0.05 | Noise standard deviation for perturbations |
-| `N_EVALS_PER_CAND` | 10 | Episodes per candidate evaluation |
+| `N_EVALS_PER_CAND` | 100 | Episodes per candidate evaluation |
 
 **Output:**
 - Console log with per-generation statistics (population avg, policy eval, best overall)
 - Training curve saved to `plots/<env_name>_training.pdf`
 - Welch's t-test comparing baseline vs. trained weights (200-episode evaluation)
 
-### 3. Visualize Network Topologies
+### 3. Run Multiple Trials and Aggregate Data
+
+Execute multiple sequential training runs to assess variance and automatically generate shaded statistical plots:
+
+```bash
+python run_multiple_trials.py
+```
+
+*Note: Edit the `env_name` variable inside the script to change the target environment.*
+
+### 4. Plot Aggregated Data Manually
+
+If you already have the CSV logs from multiple runs and just want to regenerate the shaded plots:
+
+```bash
+python plot_multiple_trials.py --env smc_discrete
+```
+
+### 5. Visualize Network Topologies
 
 Generate high-resolution PDF visualizations of all three WANN architectures:
 
