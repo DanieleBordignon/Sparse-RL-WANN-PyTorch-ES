@@ -1,4 +1,6 @@
 import os
+import sys
+import argparse
 import subprocess
 import csv
 import numpy as np
@@ -6,8 +8,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-def main():
-    env_name = 'lunar_lander'
+def run_env(env_name):
+    """Run 5 seeded trials of one environment, then aggregate their CSVs and plot."""
     num_runs = 5
     seeds = [101, 102, 103, 104, 105]
     
@@ -27,8 +29,9 @@ def main():
         print(f"\n[Run {run_id}/{num_runs}] Seed={seed} | Logging to {log_file_path}...")
         
         # Build command: python -u train_wann_weights.py --env smc_discrete --seed seed --run_id run_id
+        # sys.executable = the same Python running this script (e.g. the pcourse conda env)
         cmd = [
-            "python", "-u", "train_wann_weights.py",
+            sys.executable, "-u", "train_wann_weights.py",
             "--env", env_name,
             "--seed", str(seed),
             "--run_id", run_id
@@ -159,6 +162,18 @@ def main():
     print(f"Saved aggregated best overall plots: {best_png_path} and {best_pdf_path}")
     
     print("\nAll runs finished. Aggregated shaded plots created successfully!")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run 5 seeded ES trials per environment and aggregate the results")
+    parser.add_argument('--env', nargs='+', default=['lunar_lander'],
+                        choices=['smc_discrete', 'smc_continuous', 'lunar_lander'],
+                        help="One or more environments, run one after the other (default: lunar_lander)")
+    args = parser.parse_args()
+
+    for env_name in args.env:
+        run_env(env_name)
+
 
 if __name__ == "__main__":
     main()
