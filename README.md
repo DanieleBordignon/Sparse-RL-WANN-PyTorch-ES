@@ -2,7 +2,7 @@
 
 **An Empirical Analysis via Evolution Strategies**
 
-> This project investigates whether the performance of Weight Agnostic Neural Networks (WANNs) in sparse reward environments can be improved through targeted weight optimization using OpenAI Evolution Strategies (ES). Our findings confirm that explicit weight tuning is unnecessary, the topology itself drives the solution.
+> This project investigates whether the performance of Weight Agnostic Neural Networks (WANNs) in sparse reward environments can be improved through targeted weight optimization using OpenAI Evolution Strategies (ES). The answer depends on the task: on Sparse Mountain Car the topology alone drives the solution and weight tuning brings no gain, while on Lunar Lander, where the topology lands in less than half of the episodes, weight optimization clearly improves performance.
 
 📄 **[Read the Full Paper (PDF)]()**
 
@@ -36,7 +36,7 @@ This project extends the work of [Lingenberg & Reuter (2025)](https://github.com
 
 1. **Reconstructing** the optimal WANN topologies in **PyTorch** (with verified numerical equivalence to the original NumPy implementation).
 2. **Applying OpenAI Evolution Strategies (ES)** to optimize individual connection weights of these fixed topologies.
-3. **Demonstrating** that targeted weight optimization yields **no performance improvement** over the shared-weight baseline, confirming the weight-agnostic hypothesis.
+3. **Showing** that targeted weight optimization yields **no performance improvement** over the shared-weight baseline on Sparse Mountain Car, but a **clear improvement** on Lunar Lander: the weight-agnostic hypothesis holds, but not universally.
 
 ---
 
@@ -59,14 +59,15 @@ The following scripts represent the main contributions of this project, built on
 
 | Configuration | SMC Discrete | SMC Continuous | Lunar Lander |
 |:---|:---:|:---:|:---:|
-| **Shared Baseline** | **129.3 ± 33.6** | **106.8 ± 13.4** | **67.0 ± 11.3** |
-| ES Trained | 129.4 ± 32.8 | 106.9 ± 13.6 | 67.0 ± 12.1 |
+| Shared Baseline | **129.4 ± 33.7** | 109.3 ± 12.5 | 672.8 ± 355.3 (48% landings) |
+| ES Trained | 130.2 ± 33.4 | **108.8 ± 14.0** | **416.8 ± 258.7 (86% landings)** |
+| Welch's t-test p-value | 0.80 | 0.74 | < 0.001 |
 
-> *Average steps ± std. dev. over 200 trials (lower is better).*
+> *Average steps ± std. dev. over 200 episodes (lower is better), for the run with the median final performance of the ES-trained weights (run 2 of 5). Failed episodes count as the maximum episode length (200 steps for SMC, 1000 for Lunar Lander).*
 
-✅ **WANNs are genuinely weight agnostic**, topology alone encodes the control policy.\
-✅ **Result holds across all complexity levels**, from 4 connections (SMC Discrete) to 71 connections (SMC Continuous).\
-✅ **No reward shaping required**, compact, interpretable policies discovered via evolutionary search.
+- **Sparse Mountain Car: no gain from weight tuning.** ES and the shared-weight baseline are statistically equivalent in all five runs, from 4 connections (Discrete) to 71 connections (Continuous).
+- **Lunar Lander: clear gain from weight tuning.** In all five runs the ES-trained weights land in 62–96% of the episodes, against 43–48% for the shared-weight baseline (p ≤ 0.004 in every run).
+- **What makes the difference** is not the network size but how well the topology already solves the task: the Sparse Mountain Car networks always reach the goal, the Lunar Lander network (17 connections) lands in less than half of the episodes.
 
 ---
 
@@ -98,7 +99,9 @@ The optimal WANN topologies discovered by [Lingenberg & Reuter](https://github.c
   <img src="plots/smc_continuous.png" alt="SMC Continuous network topology" width="95%">
 </p>
 
-### Lunar Lander (1 hidden node, 11 connections)
+### Lunar Lander (2 hidden nodes, 17 connections)
+
+> The champion file `champions/lula_best.out` inherited from the original repository comes from a weaker run (`lula_1024_128`) that never lands. This project uses the best network reported by the original authors, `log/lula/lula_256_480_best.out`.
 
 <p align="center">
   <img src="plots/lunar_lander.png" alt="Lunar Lander network topology" width="80%">
@@ -108,7 +111,7 @@ The optimal WANN topologies discovered by [Lingenberg & Reuter](https://github.c
 
 ## Results
 
-The ES optimization across 100 generations fails to improve upon the shared-weight baseline for any environment. To examine the optimization dynamics, the multi-run aggregated training curves below illustrate the lowest step count achieved up to each generation, effectively displaying the historical best policy found during the search.
+The multi-run aggregated training curves below show, for each generation, the lowest step count achieved so far by the ES policy (mean ± std. dev. over five runs), against the shared-weight baseline (red dashed line: mean over the five runs ± std. dev.).
 
 ### Sparse Mountain Car - Discrete
 
@@ -128,11 +131,11 @@ The ES optimization across 100 generations fails to improve upon the shared-weig
   <img src="plots/aggregated/lunar_lander_multi_run_best_overall.png" alt="Lunar Lander training curve" width="70%">
 </p>
 
-Although the cumulative training curves show that the optimized parameters occasionally reach a slightly lower step count than the shared-weight baseline, this marginal improvement does not generalize to the final evaluation stage. As reported in the Key Findings table, when evaluated over 200 independent episodes, the performance of the optimized weights aligns with the baseline. This minor discrepancy is due to the stochastic nature of the training environments and selection bias: specific weight configurations can exploit favorable episodes during the evolutionary search, but their advantage disappears under rigorous statistical verification.
+On Sparse Mountain Car, the curves drop slightly below the shared-weight baseline, but this improvement does not hold in the final evaluation: over 200 new episodes, the optimized weights perform at the baseline level. The gap comes from selection bias: each curve is a running minimum of noisy 100-episode estimates, so it is optimistic. Re-evaluating the fixed baseline in the same way, without any optimization, gives the same gap (120.8–122.9 steps on SMC Discrete).
 
-> It is worth noting the extreme sparsity of the architectures solving the discrete tasks, e.g., comprising only 4 connections for the Sparse Mountain Car (Discrete). While one might intuitively attribute the lack of improvement to this heavily constrained parameter space, our results on the Sparse Mountain Car Continuous environment demonstrate otherwise. Despite possessing a significantly more complex architecture (71 connections), the targeted weight optimization still yielded no performance gains.
-> 
-> Ultimately, these findings provide compelling evidence that the discovered network structures are genuinely weight-agnostic. The fact that a targeted evolutionary optimization process fails to surpass the performance of a shared weight confirms that, regardless of the network's complexity, the problem-solving capability is inherently encoded within the topology itself, making explicit weight tuning unnecessary.
+On Lunar Lander, the curve drops from about 700 to about 435 steps, and the final evaluation confirms most of this improvement (474.7 steps on average over the five runs). Most of the gain comes from a higher landing rate: in successful episodes, the number of steps stays close to the baseline.
+
+> Network size does not explain the difference. Weight tuning brings no gain on the 71-connection Sparse Mountain Car (Continuous) network, but a clear gain on the 17-connection Lunar Lander network. What matters is how well the topology already solves the task with a single shared weight: when it does, as on Sparse Mountain Car, the control policy is encoded in the topology itself; when it does not, as on Lunar Lander, the topology is a good starting point for weight optimization.
 
 ---
 
@@ -168,14 +171,10 @@ Pre-evolved champion networks for all three environments are already provided in
 Run the OpenAI Evolution Strategies weight optimizer on a selected environment:
 
 ```bash
-python train_wann_weights.py
+python train_wann_weights.py --env smc_discrete --seed 101
 ```
 
-Edit the `ENV_NAME` variable in `main()` to select the target environment:
-
-```python
-ENV_NAME = 'smc_discrete'    # Options: 'smc_discrete', 'smc_continuous', 'lunar_lander'
-```
+`--env` selects the target environment (`smc_discrete`, `smc_continuous` or `lunar_lander`); `--seed` makes the run reproducible; `--run_id` adds a suffix to the output files.
 
 **Training configuration:**
 
@@ -188,19 +187,23 @@ ENV_NAME = 'smc_discrete'    # Options: 'smc_discrete', 'smc_continuous', 'lunar
 | `N_EVALS_PER_CAND` | 100 | Episodes per candidate evaluation |
 
 **Output:**
-- Console log with per-generation statistics (population avg, policy eval, best overall)
-- Training curve saved to `plots/<env_name>_training.pdf`
+- Console log with per-generation statistics (population avg, policy eval, best overall, success rate)
+- Training curves in `plots/Latex/` (PDF) and `plots/png/` (PNG)
+- Per-episode, per-generation and summary data in `plots/csv/`
+- Final weights in `plots/weights/<env_name>.npz`
 - Welch's t-test comparing baseline vs. trained weights (200-episode evaluation)
+
+Failed episodes (timeout, or crash and out-of-bounds in Lunar Lander) are counted as the maximum episode length: 200 steps for Sparse Mountain Car, 1000 for Lunar Lander.
 
 ### 3. Run Multiple Trials and Aggregate Data
 
 Execute multiple sequential training runs to assess variance and automatically generate shaded statistical plots:
 
 ```bash
-python run_multiple_trials.py
+python run_multiple_trials.py --env smc_discrete smc_continuous lunar_lander
 ```
 
-*Note: Edit the `env_name` variable inside the script to change the target environment.*
+Each environment runs five times with seeds 101–105; several environments run one after the other. The results reported above come from this command.
 
 ### 4. Plot Aggregated Data Manually
 
