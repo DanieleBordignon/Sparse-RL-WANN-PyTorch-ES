@@ -19,7 +19,9 @@ def plot_results(env_name, num_runs, csv_dir="plots/csv", agg_plot_dir="plots/ag
     all_runs_best_overall = []
     
     generations = None
-    best_baseline_steps = None
+    # The best shared weight is chosen separately in each run, so the baseline
+    # differs between runs: collect one value per run and plot their mean ± std.
+    baseline_steps_per_run = []
     
     # 1. Parse the output CSVs from each run
     for i in range(num_runs):
@@ -39,11 +41,13 @@ def plot_results(env_name, num_runs, csv_dir="plots/csv", agg_plot_dir="plots/ag
         with open(training_csv, 'r') as f:
             reader = csv.reader(f)
             header = next(reader)
+            run_baseline = None
             for row in reader:
                 gen_list.append(int(row[0]))
                 eval_steps_list.append(float(row[1]))
-                if best_baseline_steps is None:
-                    best_baseline_steps = float(row[2])
+                if run_baseline is None:
+                    run_baseline = float(row[2])
+            baseline_steps_per_run.append(run_baseline)
                     
         # Read best overall steps
         best_steps_list = []
@@ -74,6 +78,16 @@ def plot_results(env_name, num_runs, csv_dir="plots/csv", agg_plot_dir="plots/ag
     mean_best_overall = np.mean(all_runs_best_overall, axis=0)
     std_best_overall = np.std(all_runs_best_overall, axis=0)
 
+    mean_baseline = np.mean(baseline_steps_per_run)
+    std_baseline = np.std(baseline_steps_per_run)
+    print(f"Shared-weight baseline per run: {[round(b, 1) for b in baseline_steps_per_run]} "
+          f"-> mean {mean_baseline:.1f} ± {std_baseline:.1f}")
+
+    # Fixed y-axis range per environment, so the paper panels are comparable
+    y_limits = {'smc_continuous': (100, 140), 'smc_discrete': (115, 155), 'lunar_lander': (300, 800)}
+    # In Lunar Lander the baseline (~700) sits near the top, where the legend would cover it
+    legend_loc = 'lower left' if env_name == 'lunar_lander' else 'upper right'
+
     # Make output directory for aggregated plots
     os.makedirs(agg_plot_dir, exist_ok=True)
 
@@ -83,20 +97,16 @@ def plot_results(env_name, num_runs, csv_dir="plots/csv", agg_plot_dir="plots/ag
     ax.fill_between(generations, mean_training - std_training, mean_training + std_training, 
                     color='#2196F3', alpha=0.15, label='±1 Std Dev')
     
-    if best_baseline_steps is not None:
-        ax.axhline(y=best_baseline_steps, linestyle='--', linewidth=4.0, color='#E53935', label='Shared-Weight Baseline')
+    ax.axhline(y=mean_baseline, linestyle='--', linewidth=4.0, color='#E53935', label='Shared-Weight Baseline')
+    ax.axhspan(mean_baseline - std_baseline, mean_baseline + std_baseline, color='#E53935', alpha=0.10)
         
     ax.set_xlabel('Generation', fontsize=22)
     ax.set_ylabel('Average Steps', fontsize=22)
     ax.tick_params(axis='both', which='major', labelsize=18)
-    ax.legend(loc='upper right', fontsize=18)
+    ax.legend(loc=legend_loc, fontsize=18)
     ax.grid(True, alpha=0.3)
-    if env_name == 'smc_continuous':
-        ax.set_ylim(100, 140)
-    elif env_name == 'smc_discrete':
-        ax.set_ylim(115, 155)
-    elif env_name == 'lunar_lander':
-        ax.set_ylim(55, 95)
+    if env_name in y_limits:
+        ax.set_ylim(*y_limits[env_name])
     fig.tight_layout()
     
     png_path = os.path.join(agg_plot_dir, f"{env_name}_multi_run_eval.png")
@@ -112,20 +122,16 @@ def plot_results(env_name, num_runs, csv_dir="plots/csv", agg_plot_dir="plots/ag
     ax.fill_between(generations, mean_best_overall - std_best_overall, mean_best_overall + std_best_overall, 
                     color='#2196F3', alpha=0.15, label='±1 Std Dev')
     
-    if best_baseline_steps is not None:
-        ax.axhline(y=best_baseline_steps, linestyle='--', linewidth=4.0, color='#E53935', label='Shared-Weight Baseline')
+    ax.axhline(y=mean_baseline, linestyle='--', linewidth=4.0, color='#E53935', label='Shared-Weight Baseline')
+    ax.axhspan(mean_baseline - std_baseline, mean_baseline + std_baseline, color='#E53935', alpha=0.10)
         
     ax.set_xlabel('Generation', fontsize=22)
     ax.set_ylabel('No. steps', fontsize=22)
     ax.tick_params(axis='both', which='major', labelsize=18)
-    ax.legend(loc='upper right', fontsize=18)
+    ax.legend(loc=legend_loc, fontsize=18)
     ax.grid(True, alpha=0.3)
-    if env_name == 'smc_continuous':
-        ax.set_ylim(100, 140)
-    elif env_name == 'smc_discrete':
-        ax.set_ylim(115, 155)
-    elif env_name == 'lunar_lander':
-        ax.set_ylim(55, 95)
+    if env_name in y_limits:
+        ax.set_ylim(*y_limits[env_name])
     fig.tight_layout()
     
     best_png_path = os.path.join(agg_plot_dir, f"{env_name}_multi_run_best_overall.png")

@@ -18,7 +18,8 @@ ENV_CONFIGS = {
         'labels': ['position', 'velocity', 'acceleration']
     },
     'lunar_lander':   {
-        'file': 'champions/lula_best.out', 
+        # champions/lula_best.out is the weaker run (lula_1024_128) and never lands
+        'file': 'log/lula/lula_256_480_best.out',
         'n_in': 8, 'n_out': 4,
         'labels': ['x', 'y', 'dx', 'dy', 'angle', 'angular\nvel', 'leg1', 'leg2',
                    'do\nnothing', 'fire\nleft', 'fire\nmain', 'fire\nright']
